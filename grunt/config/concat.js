@@ -49,7 +49,7 @@ module.exports = {
   junit: {
     src: [
       'src/junit/requireJunit.js',
-      'src/console/JunitReporter.js'
+      'src/junit/JunitReporter.js'
     ],
     dest: 'src/junit/junit.js'
   },

@@ -1,35 +1,41 @@
+/*
+Copyright (c) 2008-2013 Pivotal Labs
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 jasmineRequire.junit = function(j$) {
   j$.ResultsNode = jasmineRequire.ResultsNode();
   j$.JunitReporter = jasmineRequire.JunitReporter(j$);
-  j$.JunitSpecReporter = jasmineRequire.JunitSpecReporter();
 };
+
 jasmineRequire.JunitReporter = function(j$) {
 
-  var noopTimer = {
-    start: function(){},
-    elapsed: function(){ return 0; }
-  };
-
   function JunitReporter(options) {
-    var env = options.env || {},
-        timer = options.timer || noopTimer,
-        output = '',
-        specsExecuted = 0,
-        failureCount = 0,
-        failedSpecs = [],
-        pendingSpecCount = 0;
-
-    var totalSpecsDefined;
+    var output = '',
+        topResultsNode = new j$.ResultsNode({}, "", null),
+        currentParent = topResultsNode;
 
     this.jasmineStarted = function(options) {
-      totalSpecsDefined = options.totalSpecsDefined || 0;
-      timer.start();
       output += '<?xml version="1.0" encoding="UTF-8" ?>\n';
       output += '<testsuites>\n';
     };
-
-    var topResults = new j$.ResultsNode({}, "", null),
-      currentParent = topResults;
 
     this.suiteStarted = function(result) {
       result.startTime = new Date();
@@ -38,10 +44,11 @@ jasmineRequire.JunitReporter = function(j$) {
     };
 
     this.suiteDone = function(result) {
-      if (currentParent == topResults) {
+      result.duration = ( new Date() - result.startTime ) / 1000;
+
+      if (currentParent == topResultsNode) {
         return;
       }
-      result.duration = ( new Date() - result.startTime ) / 1000;
       currentParent = currentParent.parent;
     };
 
@@ -50,148 +57,31 @@ jasmineRequire.JunitReporter = function(j$) {
       currentParent.addChild(result, "spec");
     };
 
-    var failures = [];
-
     this.specDone = function(result) {
       result.duration = ( new Date() - result.startTime ) / 1000;
 
-      if (result.status != "disabled") {
-        specsExecuted++;
-      }
-
-      if (result.status == "failed") {
-        failureCount++;
-
-        var pointer = currentParent;
-        while(pointer.parent) {
-          pointer.failed++;
-          pointer = pointer.parent;
-        }
-        currentParent.failedExpectations = result.failedExpectations;
-      }
-
-      if (result.status == "pending") {
-        pendingSpecCount++;
-      }
-
-      if (result.status == 'passed') {
-        var pointer = currentParent;
-        while(pointer.parent) {
-          pointer.passed++;
-          pointer = pointer.parent;
+      if (result.status == "failed" || result.status === "passed") {
+        var parentPointer = currentParent;
+        while (parentPointer.parent) {
+          parentPointer[result.status]++;
+          parentPointer = parentPointer.parent;
         }
       }
     };
 
     this.jasmineDone = function() {
-      for (var i = 0; i < topResults.children.length; i++) {
-        processResult(topResults.children[i], 1);
+      for (var i = 0; i < topResultsNode.children.length; i++) {
+        output += topResultsNode.children[i].getXml(1);
       }
-
       output += '</testsuites>';
 
       window.__phantom_writeFile("reports/results.xml", output);
     };
 
     return this;
-
-    function processResult(result, depth) {
-      var indent = '';
-      for (var i = 0; i < depth; i++) {
-        indent += '  ';
-      }
-
-      if (result.type == 'suite') {
-        output += indent + getSuiteOpening(result) + '\n';
-      } else if (result.type == 'spec') {
-        output += indent + getSpecOutput(result, indent) + '\n';
-      }
-
-      for (var i = 0; i < result.children.length; i++) {
-        processResult(result.children[i], depth + 1);
-      }
-
-      if (result.type == 'suite') {
-        output += indent + getSuiteEnd() + '\n';
-      }
-    };
-
-    function getSuiteOpening(suite) {
-      var res = '<testsuite ';
-      res += attributesToString({
-        name: suite.result.description,
-        duration: suite.result.duration,
-        timestamp: suite.result.startTime,
-        tests: suite.failed + suite.passed,
-        failures: suite.failed
-      });
-      return res + ' />';
-    }
-
-    function getSuiteEnd() {
-      return "</testsuite>";
-    }
-
-    function getSpecOutput(spec, indent) {
-      var res = '<testcase ';
-      res += attributesToString({
-        classname: spec.result.description,
-        duration: spec.result.duration, 
-        result: spec.result.status 
-      });
-      if (spec.result.status === "failed") {
-        res += ">\n";
-        res += processFailure(spec.result, indent + '  ');
-        return res + indent + '</testcase>'
-      } else {
-        return res + ' />';
-      }
-    }
-
-    function processFailure(result, indent) {
-      var failedExpectations = result.failedExpectations,
-          result = '';
-
-      for (var i = 0; i < failedExpectations.length; i++) {
-        var fe = failedExpectations[i];
-        var res = indent + '<failure>' + parseStack(fe.stack) + '\n';
-        return res + '</failure>\n';
-      }
-    }
-
-    function parseStack(stack) {
-      return stack.replace(/[\n]*.*jasmine.*\n/g,'.');
-    }
-
-    function attributesToString(attrs) {
-      var res = [];
-      for (var key in attrs) {
-        res.push(key + '="' + attrs[key] + '"');
-      }
-      return res.join(' ');
-    }
-
-    function pluralize(singular, count) {
-      var word = (count == 1 ? singular : singular + "s");
-
-      return "" + count + " " + word;
-    }
   }
 
   return JunitReporter;
-};
-
-jasmineRequire.JunitSpecReporter = function() {
-  function JunitSpecReporter(options) {
-    var filterString = options && options.filterString() && options.filterString().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
-    var filterPattern = new RegExp(filterString);
-
-    this.matches = function(specName) {
-      return filterPattern.test(specName);
-    };
-  }
-
-  return JunitSpecReporter;
 };
 
 jasmineRequire.ResultsNode = function() {
@@ -212,6 +102,121 @@ jasmineRequire.ResultsNode = function() {
     this.last = function() {
       return this.children[this.children.length - 1];
     };
+
+    this.getXml = function(depth) {
+      var xml = "";
+
+      xml += this.getOpeningXml(depth);
+
+      for (var i = 0; i < this.children.length; i++) {
+        xml += this.children[i].getXml(depth + 1);
+      }
+      xml += this.getClosingXml(depth);
+
+      return xml;
+    };
+
+    this.getOpeningXml = function(depth) {
+      var xml = "";
+      if (this.type == 'suite') {
+        xml += this.getSuiteOpeningXml(depth);
+      } else if (this.type == 'spec') {
+        xml += this.getSpecXml(depth);
+      }
+
+      return xml;
+    };
+
+    this.getClosingXml = function(depth) {
+      var xml = "";
+      if (this.type == 'suite') {
+        xml += this.getSuiteClosingXml(depth);
+      }
+      return xml;
+    };
+
+    this.getSuiteOpeningXml = function(depth) {
+      var xml = indent("<testsuite ", depth);
+
+      xml += attributesToString({
+        name: this.result.description,
+        duration: this.result.duration,
+        timestamp: this.result.startTime,
+        tests: this.failed + this.passed,
+        failures: this.failed
+      });
+      xml += " />\n";
+
+      return xml;
+    };
+
+    this.getSuiteClosingXml = function(depth) {
+      return indent("</testsuite>\n", depth);
+    };
+
+    this.getSpecXml = function(depth) {
+      var xml = indent("<testcase ", depth);
+
+      xml += attributesToString({
+        classname: this.result.description,
+        duration: this.result.duration, 
+        result: this.result.status
+      });
+
+      if (this.result.status === "failed") {
+        xml += ">\n";
+        xml += this.getFailureXml(depth + 1);
+        xml += indent("</testcase>\n", depth);
+      } else {
+        xml += " />\n";
+      }
+      return xml;
+    };
+
+    this.getFailureXml = function(depth) {
+      var xml = "";
+
+      for (var i = 0; i < this.result.failedExpectations.length; i++) {
+        var fe = this.result.failedExpectations[i];
+
+        xml += indent("<failure>\n", depth);
+        xml += formatStack(fe.stack, depth + 1);
+        xml += indent("</failure>\n", depth);
+        return xml;
+      }
+    };
+
+    return this;
+
+    function indent(text, depth) {
+      var tab = "";
+      for (var i = 0; i < depth; i++) {
+        tab += "  ";
+      }
+      return tab + text;
+    }
+
+    // Stripping out jasmine error lines from stacktrace
+    function formatStack(stack, depth) {
+      var lines = (stack || '').split('\n'),
+          validLines = [];
+
+      for (var i = 0; i < lines.length; i++) {
+        if (!new RegExp(/\/jasmine\//).test(lines[i])) {
+          validLines.push(indent(lines[i], depth));
+        }
+      }
+      return validLines.join('\n') + '\n';
+    }
+
+    function attributesToString(attrs) {
+      var res = [];
+
+      for (var key in attrs) {
+        res.push(key + '="' + attrs[key] + '"');
+      }
+      return res.join(' ');
+    }
   }
 
   return ResultsNode;
