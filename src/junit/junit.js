@@ -20,17 +20,27 @@ LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
-jasmineRequire.junit = function(j$) {
-  j$.ResultsNode = jasmineRequire.ResultsNode();
-  j$.JunitReporter = jasmineRequire.JunitReporter(j$);
+function getJasmineRequireObj() {
+  if (typeof module !== "undefined" && module.exports) {
+    return exports;
+  } else {
+    window.jasmineRequire = window.jasmineRequire || {};
+    return window.jasmineRequire;
+  }
+}
+
+getJasmineRequireObj().junit = function(jRequire, j$) {
+  j$.JunitReporter = jRequire.JunitReporter(j$);
+  j$.JunitResultsNode = jRequire.JunitResultsNode(j$);
 };
 
-jasmineRequire.JunitReporter = function(j$) {
+getJasmineRequireObj().JunitReporter = function(j$) {
 
   function JunitReporter(options) {
     var output = '',
-        topResultsNode = new j$.ResultsNode({}, "", null),
-        currentParent = topResultsNode;
+        topResultsNode = new j$.JunitResultsNode({}, "", null),
+        currentParent = topResultsNode,
+        path = options.path;
 
     this.jasmineStarted = function(options) {
       output += '<?xml version="1.0" encoding="UTF-8" ?>\n';
@@ -75,17 +85,62 @@ jasmineRequire.JunitReporter = function(j$) {
       }
       output += '</testsuites>';
 
-      window.__phantom_writeFile("reports/results.xml", output);
+      this.writeToFile(path, output);
     };
 
+    this.writeToFile = function(path, output) {
+      function getQualifiedFilename(separator) {
+        if (path && path.substr(-1) !== separator && filename.substr(0) !== separator) {
+          path += separator;
+        }
+        return path + 'results.xml';
+      }
+
+      // From Larry Myers' Jasmine 1.3.x Junit Reporter
+      // Rhino
+      try {
+        // turn filename into a qualified path
+        if (path) {
+          filename = getQualifiedFilename(java.lang.System.getProperty("file.separator"));
+            // create parent dir and ancestors if necessary
+            var file = java.io.File(filename);
+            var parentDir = file.getParentFile();
+            if (!parentDir.exists()) {
+              parentDir.mkdirs();
+            }
+          }
+        // finally write the file
+        var out = new java.io.BufferedWriter(new java.io.FileWriter(filename));
+        out.write(output);
+        out.close();
+        return;
+      } catch (e) {}
+      // PhantomJS, via a method injected by phantomjs-testrunner.js
+      try {
+        // turn filename into a qualified path
+        filename = getQualifiedFilename(window.fs_path_separator);
+        __phantom_writeFile(filename, output);
+        return;
+      } catch (f) {}
+      // Node.js
+      try {
+        var fs = require("fs");
+        var nodejs_path = require("path");
+        var fd = fs.openSync(nodejs_path.join(path, filename), "w");
+        fs.writeSync(fd, output, 0);
+        fs.closeSync(fd);
+        return;
+      } catch (g) {}
+    }
+
     return this;
-  }
+  };
 
   return JunitReporter;
 };
 
-jasmineRequire.ResultsNode = function() {
-  function ResultsNode(result, type, parent) {
+getJasmineRequireObj().JunitResultsNode = function() {
+  function JunitResultsNode(result, type, parent) {
     this.result = result;
     this.passed = 0;
     this.failed = 0;
@@ -96,7 +151,7 @@ jasmineRequire.ResultsNode = function() {
     this.children = [];
 
     this.addChild = function(result, type) {
-      this.children.push(new ResultsNode(result, type, this));
+      this.children.push(new JunitResultsNode(result, type, this));
     };
 
     this.last = function() {
@@ -159,7 +214,7 @@ jasmineRequire.ResultsNode = function() {
 
       xml += attributesToString({
         classname: this.result.description,
-        duration: this.result.duration, 
+        duration: this.result.duration,
         result: this.result.status
       });
 
@@ -209,15 +264,29 @@ jasmineRequire.ResultsNode = function() {
       return validLines.join('\n') + '\n';
     }
 
+    function escapeInvalidXmlChars(str) {
+      if (typeof str === "string") {
+        return str.replace(/\&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/\>/g, "&gt;")
+            .replace(/\"/g, "&quot;")
+            .replace(/\'/g, "&apos;");
+      } else {
+        return str;
+      }
+    }
+
     function attributesToString(attrs) {
       var res = [];
 
       for (var key in attrs) {
-        res.push(key + '="' + attrs[key] + '"');
+        if (attrs.hasOwnProperty(key)) {
+          res.push(key + '="' + escapeInvalidXmlChars(attrs[key]) + '"');
+        }
       }
       return res.join(' ');
     }
   }
 
-  return ResultsNode;
+  return JunitResultsNode;
 };
