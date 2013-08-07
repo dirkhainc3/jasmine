@@ -35,7 +35,7 @@ getJasmineRequireObj().JunitReporter = function(j$) {
     this.specDone = function(result) {
       result.duration = ( new Date() - result.startTime ) / 1000;
 
-      if (result.status == "failed" || result.status === "passed") {
+      if (result.status == "failed" || result.status === "passed" || result.status == "pending") {
         var parentPointer = currentParent;
         while (parentPointer.parent) {
           parentPointer[result.status]++;
@@ -109,6 +109,7 @@ getJasmineRequireObj().JunitResultsNode = function() {
     this.result = result;
     this.passed = 0;
     this.failed = 0;
+    this.pending = 0;
 
     this.type = type;
     this.parent = parent;
@@ -162,8 +163,9 @@ getJasmineRequireObj().JunitResultsNode = function() {
         name: this.result.description,
         duration: this.result.duration,
         timestamp: this.result.startTime,
-        tests: this.failed + this.passed,
-        failures: this.failed
+        tests: this.failed + this.passed + this.pending,
+        failures: this.failed,
+        pending: this.pending
       });
       xml += " />\n";
 
@@ -195,15 +197,14 @@ getJasmineRequireObj().JunitResultsNode = function() {
 
     this.getFailureXml = function(depth) {
       var xml = "";
-
       for (var i = 0; i < this.result.failedExpectations.length; i++) {
         var fe = this.result.failedExpectations[i];
 
         xml += indent("<failure>\n", depth);
         xml += formatStack(fe.stack, depth + 1);
         xml += indent("</failure>\n", depth);
-        return xml;
       }
+      return xml;
     };
 
     return this;

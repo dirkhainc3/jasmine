@@ -1,60 +1,124 @@
 describe("JunitReporter", function() {
-  var reporter, output;
+  var reporter, output, result;
 
   beforeEach(function() {
     reporter = new j$.JunitReporter();
+    result = new j$.JunitResultsNode({}, "", null);
     spyOn(reporter, 'writeToFile').and.callFake(function(path, o) {
       output = o;
     });
+    reporter.jasmineStarted();
   });
 
   it("starts with an xml tag", function() {
-    reporter.jasmineStarted();
     reporter.jasmineDone();
-
     expect(reporter.writeToFile).toHaveBeenCalled();
-
-    expect(new RegExp(/xml/).test(output)).toBeTruthy();
+    expect(new RegExp(/<\?xml/).test(output)).toBeTruthy();
   });
 
+  it("reports a suite started", function() {
+    reporter.suiteStarted(result);
+    reporter.jasmineDone();
+    expect(new RegExp(/<testsuites>/).test(output)).toBeTruthy();
+    expect(new RegExp(/<testsuite/).test(output)).toBeTruthy();
+  });
 
-  // it("reports a failing spec", function() {
-  //   var reporter = new j$.ConsoleReporter({
-  //     print: out.print
-  //   });
+  it("reports a spec started", function() {
+    reporter.specStarted(result);
+    reporter.jasmineDone();
+    expect(new RegExp(/<testcase/).test(output)).toBeTruthy();
+  });
 
-  //   reporter.specDone({status: "failed"});
+  it("reports a passed spec", function() {
+    reporter.suiteStarted(result);
+    reporter.specStarted(result);
+    result.status = 'passed';
+    reporter.specDone(result);
+    reporter.jasmineDone();
+    expect(new RegExp(/result="passed"/).test(output)).toBeTruthy();
+    expect(new RegExp(/tests="1"/).test(output)).toBeTruthy();
+  });
 
-  //   expect(out.getOutput()).toEqual("F");
-  // });
+  it("reports a failed spec", function() {
+    reporter.suiteStarted(result);
+    reporter.specStarted(result);
+    result.status = 'failed';
+    result.failedExpectations = [''];
+    reporter.specDone(result);
+    reporter.jasmineDone();
+    expect(new RegExp(/result="failed"/).test(output)).toBeTruthy();
+    expect(new RegExp(/tests="1"/).test(output)).toBeTruthy();
+  });
 
-  // it("reports a passing spec", function() {
-  //   var reporter = new j$.ConsoleReporter({
-  //     print: out.print
-  //   });
+  it("reports a pending spec", function() {
+    reporter.suiteStarted(result);
+    reporter.specStarted(result);
+    result.status = 'pending';
+    result.failedExpectations = [''];
+    reporter.specDone(result);
+    reporter.jasmineDone();
+    expect(new RegExp(/result="pending"/).test(output)).toBeTruthy();
+    expect(new RegExp(/tests="1"/).test(output)).toBeTruthy();
+  });
 
-  //   reporter.specDone({status: "pending"});
+  it("rolls up spec status counts", function() {
+    var outerSuiteResult = new j$.JunitResultsNode({ description: "Outer Suite"}, "", null);
+    var innerSuiteResult = new j$.JunitResultsNode({ description: "Inner Suite"}, "", null);
 
-  //   expect(out.getOutput()).toEqual("*");
-  // });
+    reporter.suiteStarted(outerSuiteResult);
+    reporter.suiteStarted(innerSuiteResult);
+    reporter.specStarted(result);
+    result.status = 'failed';
+    result.failedExpectations = [''];
+    reporter.specDone(result);
+    reporter.specDone(result);
+    reporter.suiteDone(innerSuiteResult);
+    reporter.suiteDone(outerSuiteResult);
+    reporter.jasmineDone();
+    expect(new RegExp(/(<testsuite.*failures="2"[^]*){2}[^]*<testcase.*"failed"/).test(output)).toBeTruthy();
+    expect(new RegExp(/(<testsuite.*tests="2"[^]*){2}[^]*<testcase.*"failed"/).test(output)).toBeTruthy();
+  });
 
-  // it("reports a summary when done (singluar spec and time)", function() {
-  //   var timerSpy = jasmine.createSpyObj('timer', ['start', 'elapsed']),
-  //       reporter = new j$.ConsoleReporter({
-  //         print: out.print,
-  //         timer: timerSpy
-  //       });
+  it("prints an error stack", function() {
+    reporter.suiteStarted(result);
+    reporter.specStarted(result);
+    result.status = 'failed';
+    result.failedExpectations = [{stack: 'error stack'}];
+    reporter.specDone(result);
+    reporter.jasmineDone();
+    expect(new RegExp(/<failure>/).test(output)).toBeTruthy();
+    expect(new RegExp(/error stack/).test(output)).toBeTruthy();
+  });
 
-  //   reporter.jasmineStarted();
-  //   reporter.specDone({status: "passed"});
+  it("prints an error stack for each failed assertion within a spec", function() {
+    reporter.suiteStarted(result);
+    reporter.specStarted(result);
+    result.status = 'failed';
+    result.failedExpectations = [{stack: 'error stack'}, {stack: 'another stack'}];
+    reporter.specDone(result);
+    reporter.jasmineDone();
+    expect(new RegExp(/<failure>/).test(output)).toBeTruthy();
+    expect(new RegExp(/<testcase[^]*<failure[^]*error stack[^]*<failure[^]*another stack/).test(output)).toBeTruthy();
+  });
 
-  //   timerSpy.elapsed.and.callReturn(1000);
+  it("prints an error stack for each failed assertion within a spec", function() {
+    reporter.suiteStarted(result);
+    reporter.specStarted(result);
+    result.status = 'failed';
+    result.failedExpectations = [{stack: 'error stack'}, {stack: 'another stack'}];
+    reporter.specDone(result);
+    reporter.jasmineDone();
+    expect(new RegExp(/<failure>/).test(output)).toBeTruthy();
+    expect(new RegExp(/<testcase[^]*<failure[^]*error stack[^]*<failure[^]*another stack/).test(output)).toBeTruthy();
+  });
 
-  //   out.clear();
-  //   reporter.jasmineDone();
-
-  //   expect(out.getOutput()).toMatch(/1 spec, 0 failures/);
-  //   expect(out.getOutput()).not.toMatch(/0 pending specs/);
-  //   expect(out.getOutput()).toMatch("Finished in 1 second\n");
-  // });
+  it("prints time taken per spec", function(){
+    reporter.suiteStarted(result);
+    reporter.specStarted(result);
+    result.status = 'passed';
+    reporter.specDone(result);
+    result.duration = 1.23;
+    reporter.jasmineDone();
+    expect(new RegExp(/duration="1.23"/).test(output)).toBeTruthy();
+  });
 });
